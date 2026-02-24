@@ -12,12 +12,15 @@ def generate():
         data = request.json
         prompt = data.get('prompt')
         model_type = data.get('model', 'default')
-        api_key = data.get('apiKey')
+        api_key = data.get('apiKey') # Key này phải được gửi từ client
         context = data.get('context', '')
         task_type = data.get('taskType', 'code') # code, ideas, prompt
 
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
+        
+        if not api_key:
+            return jsonify({'error': 'API Key is required for this request'}), 401
 
         # System Instructions based on task type
         if task_type == 'code':
@@ -31,15 +34,14 @@ def generate():
             else:
                 full_prompt = f"{system_instruction}\n\nTask: {prompt}"
         else:
-            full_prompt = prompt # Already formatted in JS for ideas/prompt
+            full_prompt = prompt 
 
         output_text = ""
 
         # 1. Gemini
         if model_type == 'default' or model_type == 'gemini-3-flash':
-            token = api_key if api_key else DEFAULT_GEMINI_KEY
             model_id = 'gemini-2.5-flash' if model_type == 'default' else 'gemini-3-flash-preview'
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={token}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
             payload = {
                 "contents": [{"parts": [{"text": full_prompt}]}],
                 "generationConfig": {
@@ -84,9 +86,8 @@ def generate():
 
         # 4. Huggingface
         elif 'huggingface' in model_type:
-            token = api_key if api_key else DEFAULT_HF_KEY
             url = "https://router.huggingface.co/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
                 "model": "moonshotai/Kimi-K2-Thinking:novita",
                 "messages": [{"role": "user", "content": full_prompt}]
