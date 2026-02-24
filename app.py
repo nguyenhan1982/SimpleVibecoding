@@ -6,10 +6,6 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
-# Default keys (Fallbacks from config.js)
-DEFAULT_GEMINI_KEY = "AIzaSyC4cZobo4bWS-g29Dtm8cGWp9aGQMBMR8E"
-DEFAULT_HF_KEY = "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"
-
 @app.route('/api/generate', methods=['POST'])
 def generate():
     try:
