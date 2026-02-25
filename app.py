@@ -84,20 +84,6 @@ def generate():
             else:
                 return jsonify({'error': f"Cerebras Error: {response.text}"}), response.status_code
 
-        # 4. Huggingface
-        elif 'huggingface' in model_type:
-            url = "https://router.huggingface.co/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-            payload = {
-                "model": "moonshotai/Kimi-K2-Thinking:novita",
-                "messages": [{"role": "user", "content": full_prompt}]
-            }
-            response = requests.post(url, headers=headers, json=payload)
-            if response.status_code == 200:
-                output_text = response.json()['choices'][0]['message']['content']
-            else:
-                return jsonify({'error': f"Huggingface Error: {response.text}"}), response.status_code
-
         # Post-processing
         clean_output = output_text.strip()
         if clean_output.startswith("```"):
