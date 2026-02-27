@@ -19,22 +19,116 @@ def generate():
         context = data.get('context', '')
         task_type = data.get('taskType', 'code') # code, ideas, prompt
 
-        if not prompt:
-            return jsonify({'error': 'Prompt is required'}), 400
+        # Build prompt in backend
+        if task_type == 'ideas':
+            topic = data.get('topic', '')
+            count = data.get('count', 5)
+            full_prompt = f"""Hãy tạo {count} ý tưởng ứng dụng web CHI TIẾT và THỰC TẾ liên quan đến chủ đề "{topic}". 
+            Yêu cầu:
+            - Sắp xếp từ đơn giản đến phức tạp.
+            - Mỗi ý tưởng phải có tên gọi sáng tạo và một đoạn mô tả chức năng đầy đủ (khoảng 3-4 câu), nêu rõ giá trị cốt lõi và cách người dùng tương tác.
+            - Định dạng mỗi ý tưởng bắt đầu bằng: "Ý tưởng [số]: [Tên ứng dụng] - [Mô tả chi tiết]".
+            - Viết bằng tiếng Việt.
+            Hãy tập trung vào tính khả thi và trải nghiệm người dùng."""
+            
+        elif task_type == 'prompt':
+            desc = data.get('desc', '')
+            current_key = api_key if api_key else 'YOUR_API_KEY'
+            
+            if 'groq' in model_type:
+                model_id = "qwen/qwen3-32b" if 'qwen' in model_type else "moonshotai/kimi-k2-instruct-0905"
+                max_tokens = 40960 if 'qwen' in model_type else 16384
+                top_p = 0.95 if 'qwen' in model_type else 1
+                model_name = "Qwen3-32b (Groq)" if 'qwen' in model_type else "KimiK2 (Groq)"
+                reasoning = ',\n                             "reasoning_effort": "default"' if 'qwen' in model_type else ''
+                
+                full_prompt = f"""Dựa trên mô tả: "{desc}". Hãy tạo một "Prompt Chuẩn" TRÌNH BÀY CHÍNH XÁC theo cấu trúc 4 mục sau:
+                1. Tạo ứng dụng "[Tên ứng dụng]". Ứng dụng có chức năng "[Mô tả chức năng chính]".
+                2. Đầu vào của ứng dụng là: [Liệt kê các đầu vào cần thiết].
+                3. Đầu ra của ứng dụng là: [Mô tả kết quả mong muốn].
+                4. Chức năng "[Tên chức năng chính]" được mô hình "{model_name}" xử lý. Kết nối với mô hình "{model_name}" thông qua giao thức sau: 
+                curl "https://api.groq.com/openai/v1/chat/completions" \\
+                  -X POST \\
+                  -H "Content-Type: application/json" \\
+                  -H "Authorization: Bearer {current_key}" \\
+                  -d '{{
+                         "messages": [
+                           {{
+                             "role": "user",
+                             "content": ""
+                           }}
+                         ],
+                         "model": "{model_id}",
+                         "temperature": 0.6,
+                         "max_completion_tokens": {max_tokens},
+                         "top_p": {top_p},
+                         "stream": true{reasoning},
+                         "stop": null
+                       }}'
+                
+                Yêu cầu: Trả về văn bản thuần theo đúng cấu trúc trên, không thêm lời dẫn giải."""
+                
+            elif 'cerebras' in model_type:
+                model_name_c = 'Llama3.1-8b (Cerebras)' if 'llama3.1-8b' in model_type else 'Gpt-oss-120b (Cerebras)'
+                model_id_c = 'llama3.1-8b' if 'llama3.1-8b' in model_type else 'gpt-oss-120b'
+                max_tokens_c = 8192 if 'llama3.1-8b' in model_type else 32768
+                reasoning_c = '' if 'llama3.1-8b' in model_type else '\n                      "reasoning_effort": "medium",'
+                
+                full_prompt = f"""Dựa trên mô tả: "{desc}". Hãy tạo một "Prompt Chuẩn" TRÌNH BÀY CHÍNH XÁC theo cấu trúc 4 mục sau:
+                1. Tạo ứng dụng "[Tên ứng dụng]". Ứng dụng có chức năng "[Mô tả chức năng chính]".
+                2. Đầu vào của ứng dụng là: [Liệt kê các đầu vào cần thiết].
+                3. Đầu ra của ứng dụng là: [Mô tả kết quả mong muốn].
+                4. Chức năng "[Tên chức năng chính]" được mô hình "{model_name_c}" xử lý. Kết nối với mô hình "{model_name_c}" thông qua giao thức sau: 
+                curl --location 'https://api.cerebras.ai/v1/chat/completions' \\
+                --header 'Content-Type: application/json' \\
+                --header "Authorization: Bearer {current_key}" \\
+                --data '{{
+                  "model": "{model_id_c}",
+                  "stream": true,
+                  "max_tokens": {max_tokens_c},
+                  "temperature": 1,
+                  "top_p": 1,{reasoning_c}
+                  "messages": [
+                    {{
+                      "role": "system",
+                      "content": ""
+                    }}
+                  ]
+                }}'
+                
+                Yêu cầu: Trả về văn bản thuần theo đúng cấu trúc trên, không thêm lời dẫn giải."""
+                
+            else:
+                current_model_id = 'gemini-2.5-flash' if model_type == 'default' else 'gemini-3-flash-preview'
+                model_display = 'Gemini 2.5 Flash' if model_type == 'default' else 'Gemini 3 Flash'
 
-        # System Instructions based on task type
-        if task_type == 'code':
+                full_prompt = f"""Dựa trên mô tả: "{desc}". Hãy tạo một "Prompt Chuẩn" TRÌNH BÀY CHÍNH XÁC theo cấu trúc 4 mục sau:
+                1. Tạo ứng dụng "[Tên ứng dụng]". Ứng dụng có chức năng "[Mô tả chức năng chính]".
+                2. Đầu vào của ứng dụng là: [Liệt kê các đầu vào cần thiết].
+                3. Đầu ra của ứng dụng là: [Mô tả kết quả mong muốn].
+                4. Chức năng "[Tên chức năng chính]" được mô hình "{model_display}" xử lý. Kết nối với mô hình "{model_display}" thông qua giao thức sau: https://generativelanguage.googleapis.com/v1beta/models/{current_model_id}:generateContent?key={current_key}
+                
+                Yêu cầu: Trả về văn bản thuần theo đúng cấu trúc trên, không thêm lời dẫn giải."""
+                
+        elif task_type == 'code':
+            user_prompt = prompt
+            if not user_prompt:
+                return jsonify({'error': 'Prompt is required'}), 400
+                
             system_instruction = (
                 "You are an expert web developer. Use HTML, CSS, and JavaScript. "
                 "Provide a complete, standalone HTML file. Do NOT use markdown code blocks. "
                 "Just return the raw code."
             )
+            
+            task_instruction = f"Yêu cầu mới: {user_prompt}. Hãy cập nhật mã nguồn hoàn chỉnh dựa trên yêu cầu này." if context else f"Task: {user_prompt}"
+            
             if context:
-                full_prompt = f"{system_instruction}\n\nExisting Code:\n{context}\n\nTask: {prompt}"
+                full_prompt = f"{system_instruction}\n\nCode hiện tại:\n```html\n{context}\n```\n\n{task_instruction}"
             else:
-                full_prompt = f"{system_instruction}\n\nTask: {prompt}"
+                full_prompt = f"{system_instruction}\n\n{task_instruction}"
         else:
-            full_prompt = prompt # Already formatted in JS for ideas/prompt
+            return jsonify({'error': 'Invalid taskType'}), 400
 
         output_text = ""
 
