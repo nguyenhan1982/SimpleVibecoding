@@ -1,4 +1,5 @@
 import os
+import re
 import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -6,21 +7,20 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app)
 
+
+
 @app.route('/api/generate', methods=['POST'])
 def generate():
     try:
         data = request.json
         prompt = data.get('prompt')
         model_type = data.get('model', 'default')
-        api_key = data.get('apiKey') # Key này phải được gửi từ client
+        api_key = data.get('apiKey')
         context = data.get('context', '')
         task_type = data.get('taskType', 'code') # code, ideas, prompt
 
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
-        
-        if not api_key:
-            return jsonify({'error': 'API Key is required for this request'}), 401
 
         # System Instructions based on task type
         if task_type == 'code':
@@ -34,14 +34,15 @@ def generate():
             else:
                 full_prompt = f"{system_instruction}\n\nTask: {prompt}"
         else:
-            full_prompt = prompt 
+            full_prompt = prompt # Already formatted in JS for ideas/prompt
 
         output_text = ""
 
         # 1. Gemini
         if model_type == 'default' or model_type == 'gemini-3-flash':
+            token = api_key if api_key else DEFAULT_GEMINI_KEY
             model_id = 'gemini-2.5-flash' if model_type == 'default' else 'gemini-3-flash-preview'
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={token}"
             payload = {
                 "contents": [{"parts": [{"text": full_prompt}]}],
                 "generationConfig": {
@@ -59,7 +60,7 @@ def generate():
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
-                "model": "moonshotai/kimi-k2-instruct-0905",
+                "model": "qwen/qwen3-32b" if 'qwen' in model_type else "moonshotai/kimi-k2-instruct-0905",
                 "messages": [{"role": "user", "content": full_prompt}],
                 "temperature": 0.6
             }
@@ -71,7 +72,12 @@ def generate():
 
         # 3. Cerebras
         elif 'cerebras' in model_type:
-            model_id = 'zai-glm-4.7' if 'glm' in model_type else 'qwen-3-235b-a22b-instruct-2507'
+            if 'gpt-oss-120b' in model_type:
+                model_id = 'gpt-oss-120b'
+            elif 'llama3.1-8b' in model_type:
+                model_id = 'llama3.1-8b'
+            else:
+                model_id = 'zai-glm-4.7' if 'glm' in model_type else 'qwen-3-235b-a22b-instruct-2507'
             url = "https://api.cerebras.ai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             payload = {
@@ -84,8 +90,33 @@ def generate():
             else:
                 return jsonify({'error': f"Cerebras Error: {response.text}"}), response.status_code
 
+        # 4. Huggingface
+        elif 'huggingface' in model_type:
+            token = api_key if api_key else DEFAULT_HF_KEY
+            url = "https://router.huggingface.co/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            payload = {
+                "model": "moonshotai/Kimi-K2-Thinking:novita",
+                "messages": [{"role": "user", "content": full_prompt}]
+            }
+            response = requests.post(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                output_text = response.json()['choices'][0]['message']['content']
+            else:
+                return jsonify({'error': f"Huggingface Error: {response.text}"}), response.status_code
+
         # Post-processing
         clean_output = output_text.strip()
+        
+        # Specific for Llama3.1-8b (Cerebras) - Extract only HTML content
+        if 'llama3.1-8b' in model_type and task_type == 'code':
+            start_tag = "<!DOCTYPE html>"
+            end_tag = "</html>"
+            start_idx = clean_output.find(start_tag)
+            end_idx = clean_output.rfind(end_tag)
+            if start_idx != -1 and end_idx != -1:
+                clean_output = clean_output[start_idx:end_idx + len(end_tag)].strip()
+
         if clean_output.startswith("```"):
             lines = clean_output.split("\n")
             if lines[0].startswith("```"): lines = lines[1:]
@@ -94,6 +125,9 @@ def generate():
         
         if "</thinking>" in clean_output:
             clean_output = clean_output.split("</thinking>")[-1].strip()
+        
+        # Remove <think>...</think> tags (common in Qwen reasoning models)
+        clean_output = re.sub(r'<think>.*?</think>', '', clean_output, flags=re.DOTALL).strip()
 
         return jsonify({'result': clean_output})
 
